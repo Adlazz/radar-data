@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Radar Data — Blog{% endblock %}
+{% block content %}
+  <h1 class="h3 mb-3">Últimos posteos</h1>
+
+  {% if posts %}
+    <div class="vstack gap-3">
+      {% for post in posts %}
+        <article class="card">
+          {% if post.image %}
+            <img src="{{ post.image.url }}" class="card-img-top" alt="{{ post.title }}" style="height: 200px; object-fit: cover;">
+          {% endif %}
+          <div class="card-body">
+            <h2 class="h5 mb-1">
+              <a href="{% url 'post_detail' slug=post.slug %}" class="link-underline link-underline-opacity-0">
+                {{ post.title }}
+              </a>
+            </h2>
+            {% if post.excerpt %}
+              <p class="text-body-secondary mb-2">{{ post.excerpt }}</p>
+            {% endif %}
+            <small class="text-body-tertiary">
+              Publicado el {{ post.created_at|date:"d/m/Y H:i" }}
+            </small>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-secondary">No hay posteos publicados aún.</div>
+  {% endif %}
+{% endblock %}
