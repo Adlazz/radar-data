@@ -1,9 +1,22 @@
 {% extends "base.html" %}
+
 {% block title %}{{ post.title }} — Radar Data{% endblock %}
+
+{% block meta_description %}{{ post.meta_description|default:post.excerpt|default:"Lee este interesante artículo en Radar Data"|truncatechars:160 }}{% endblock %}
+
+{% block meta_keywords %}{{ post.meta_keywords }}{% if post.category %}, {{ post.category.name }}{% endif %}{% endblock %}
+
+{% block og_title %}{{ post.title }}{% endblock %}
+{% block og_description %}{{ post.meta_description|default:post.excerpt|default:"Lee este interesante artículo en Radar Data"|truncatechars:160 }}{% endblock %}
+{% if post.image %}{% block og_image %}{{ request.build_absolute_uri }}{{ post.image.url }}{% endblock %}{% endif %}
+
 {% block content %}
   <a href="/" class="btn btn-link p-0 mb-3">← Volver</a>
 
   <article class="mb-4">
+    {% if post.category %}
+      <span class="badge bg-primary mb-3">{{ post.category.name }}</span>
+    {% endif %}
     <h1 class="h3">{{ post.title }}</h1>
     <small class="text-body-tertiary d-block mb-2">
       Publicado el {{ post.created_at|date:"d/m/Y H:i" }}

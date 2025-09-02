@@ -11,6 +11,9 @@
             <img src="{{ post.image.url }}" class="card-img-top" alt="{{ post.title }}" style="height: 200px; object-fit: cover;">
           {% endif %}
           <div class="card-body">
+            {% if post.category %}
+              <span class="badge bg-primary mb-2">{{ post.category.name }}</span>
+            {% endif %}
             <h2 class="h5 mb-1">
               <a href="{% url 'post_detail' slug=post.slug %}" class="link-underline link-underline-opacity-0">
                 {{ post.title }}
@@ -26,6 +29,37 @@
         </article>
       {% endfor %}
     </div>
+    
+    <!-- Paginación -->
+    {% if page_obj.has_other_pages %}
+      <nav aria-label="Paginación de posts" class="mt-4">
+        <ul class="pagination justify-content-center">
+          {% if page_obj.has_previous %}
+            <li class="page-item">
+              <a class="page-link" href="?page={{ page_obj.previous_page_number }}">Anterior</a>
+            </li>
+          {% endif %}
+          
+          {% for num in page_obj.paginator.page_range %}
+            {% if page_obj.number == num %}
+              <li class="page-item active">
+                <span class="page-link">{{ num }}</span>
+              </li>
+            {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+              <li class="page-item">
+                <a class="page-link" href="?page={{ num }}">{{ num }}</a>
+              </li>
+            {% endif %}
+          {% endfor %}
+          
+          {% if page_obj.has_next %}
+            <li class="page-item">
+              <a class="page-link" href="?page={{ page_obj.next_page_number }}">Siguiente</a>
+            </li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
   {% else %}
     <div class="alert alert-secondary">No hay posteos publicados aún.</div>
   {% endif %}
