@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils.text import slugify
+from django.contrib.auth.models import User
 
 
 class Category(models.Model):
@@ -50,4 +51,54 @@ class Post(models.Model):
         return self.title
 
 
+class NewsGeneration(models.Model):
+    STATUS_CHOICES = [
+        ('PENDING', 'Pendiente'),
+        ('SEARCHING', 'Buscando noticias'),
+        ('GENERATING', 'Generando contenido'),
+        ('COMPLETED', 'Completado'),
+        ('ERROR', 'Error'),
+        ('PUBLISHED', 'Publicado'),
+    ]
+    
+    tags = models.CharField(max_length=500, help_text='Tags separados por comas para buscar noticias')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    
+    # Contenido generado por IA
+    generated_title = models.CharField(max_length=200, blank=True)
+    generated_excerpt = models.CharField(max_length=300, blank=True)
+    generated_content = models.TextField(blank=True, help_text='Contenido en formato HTML')
+    generated_meta_description = models.CharField(max_length=160, blank=True)
+    generated_meta_keywords = models.CharField(max_length=255, blank=True)
+    
+    # Metadata de fuentes
+    source_articles = models.JSONField(default=list, help_text='Lista de artículos fuente con URLs y metadata')
+    total_sources_found = models.IntegerField(default=0)
+    
+    # Gestión
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='Creado por')
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    # Vinculación con post publicado
+    published_post = models.ForeignKey(Post, null=True, blank=True, on_delete=models.SET_NULL, verbose_name='Post publicado')
+    
+    # Campos de error
+    error_message = models.TextField(blank=True)
+    
+    class Meta:
+        verbose_name = 'Generación de Noticia IA'
+        verbose_name_plural = 'Generaciones de Noticias IA'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"IA Gen: {self.tags[:50]}... ({self.get_status_display()})"
+    
+    @property
+    def tags_list(self):
+        return [tag.strip() for tag in self.tags.split(',') if tag.strip()]
+    
+    @property
+    def can_publish(self):
+        return self.status == 'COMPLETED' and self.generated_title and self.generated_content
     

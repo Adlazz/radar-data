@@ -71,3 +71,19 @@ coverage.xml
 .env.local
 .env.development
 .env.production
+
+# Logs directory
+logs/
+*.log
+
+# Test files (temporary)
+test_openai*.py
+
+# AI/ML models (if any)
+models/
+*.pkl
+*.joblib
+
+# Temporary files
+tmp/
+temp/
