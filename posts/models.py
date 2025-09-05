@@ -62,6 +62,7 @@ class NewsGeneration(models.Model):
     ]
     
     tags = models.CharField(max_length=500, help_text='Tags separados por comas para buscar noticias')
+    manual_urls = models.TextField(blank=True, help_text='URLs manuales separadas por saltos de línea (opcional - si se proporcionan, se usarán en lugar de búsqueda automática)')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     
     # Contenido generado por IA

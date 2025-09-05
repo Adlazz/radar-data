@@ -1,4 +1,6 @@
 import openai
+import requests
+from bs4 import BeautifulSoup
 from django.conf import settings
 from django.utils import timezone
 from decouple import config
@@ -10,6 +12,170 @@ logger = logging.getLogger(__name__)
 class OpenAINewsGenerator:
     def __init__(self):
         self.client = openai.OpenAI(api_key=config('OPENAI_API_KEY', default=''))
+    
+    def _extract_content_from_url(self, url):
+        """
+        Extrae el contenido completo del artículo desde la URL
+        """
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Remover elementos no deseados
+            for element in soup(['script', 'style', 'nav', 'footer', 'header', 'aside']):
+                element.decompose()
+            
+            # Extraer título
+            title = ""
+            title_selectors = ['h1', 'title', '.title', '.headline']
+            for selector in title_selectors:
+                title_element = soup.select_one(selector)
+                if title_element:
+                    title = title_element.get_text().strip()
+                    break
+            
+            # Buscar el contenido principal
+            content = ""
+            selectors = [
+                'article',
+                '.article-content',
+                '.post-content', 
+                '.entry-content',
+                '.content',
+                'main',
+                '.story-body'
+            ]
+            
+            for selector in selectors:
+                element = soup.select_one(selector)
+                if element:
+                    # Extraer solo párrafos de texto
+                    paragraphs = element.find_all('p')
+                    content = ' '.join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
+                    if len(content) > 200:  # Contenido suficiente
+                        break
+            
+            # Fallback: buscar todos los párrafos
+            if len(content) < 200:
+                paragraphs = soup.find_all('p')
+                content = ' '.join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
+            
+            return {
+                'title': title or 'Artículo sin título',
+                'content': content[:3000],  # Limitar contenido
+                'url': url
+            }
+            
+        except Exception as e:
+            logger.warning(f"No se pudo extraer contenido de {url}: {e}")
+            return {
+                'title': f'Error extrayendo: {url}',
+                'content': f'No se pudo acceder al contenido de esta URL: {str(e)}',
+                'url': url
+            }
+    
+    def generate_from_manual_urls(self, urls, tags):
+        """
+        Genera un artículo basándose en URLs proporcionadas manualmente
+        """
+        extracted_articles = []
+        
+        for url in urls:
+            if url.strip():  # Solo procesar URLs no vacías
+                article_data = self._extract_content_from_url(url.strip())
+                extracted_articles.append(article_data)
+        
+        if not extracted_articles:
+            raise ValueError("No se pudo extraer contenido de ninguna URL proporcionada")
+        
+        # Preparar contexto para la IA
+        sources_context = ""
+        for i, article in enumerate(extracted_articles, 1):
+            sources_context += f"\nArtículo {i} - {article['title']}\n"
+            sources_context += f"URL: {article['url']}\n"
+            sources_context += f"Contenido: {article['content'][:1000]}...\n\n"
+        
+        tags_text = ', '.join(tags)
+        
+        # Generar artículo basado en el contenido real
+        article_content = self._generate_article_from_real_sources(tags_text, sources_context, extracted_articles)
+        
+        return article_content
+    
+    def _generate_article_from_real_sources(self, tags_text, sources_context, extracted_articles):
+        """
+        Genera un artículo basado en fuentes reales extraídas de URLs
+        """
+        comprehensive_prompt = f"""
+        Eres un periodista senior escribiendo un artículo de investigación sobre {tags_text}.
+        
+        Has consultado las siguientes fuentes reales:
+        {sources_context}
+        
+        REQUISITOS DEL ARTÍCULO:
+        - MÍNIMO 800 palabras (muy importante)
+        - MÍNIMO 6 párrafos principales
+        - Incluir al menos 3 subtítulos <h3>
+        - Estructura profesional: introducción, desarrollo (múltiples secciones), conclusión
+        - Basar el contenido en la información real de las fuentes proporcionadas
+        - Sintetizar y analizar la información de múltiples fuentes
+        - Incluir datos específicos y ejemplos concretos encontrados en las fuentes
+        - Tono profesional y periodístico
+        - NO mencionar las URLs directamente en el texto
+        
+        ESTRUCTURA REQUERIDA:
+        1. Introducción (2 párrafos)
+        2. Desarrollo principal (4-5 párrafos con subtítulos basados en el contenido real)
+        3. Análisis de impacto (2 párrafos)
+        4. Perspectivas futuras (2 párrafos)
+        5. Conclusión (1 párrafo)
+        
+        Respuesta en formato JSON:
+        {{
+            "title": "Título impactante basado en las fuentes reales (máximo 65 caracteres)",
+            "excerpt": "Resumen ejecutivo del artículo (200-250 caracteres)",
+            "content": "Artículo completo en HTML con estructura profesional",
+            "meta_description": "Descripción SEO optimizada (150-160 caracteres)",
+            "meta_keywords": "15-20 palabras clave relevantes separadas por comas",
+            "word_count": "número aproximado de palabras del contenido"
+        }}
+        
+        IMPORTANTE: El contenido debe estar basado en las fuentes reales proporcionadas y ser sustancioso, informativo y parecer escrito por un experto en {tags_text}.
+        """
+        
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": comprehensive_prompt}],
+                max_tokens=3000,
+                temperature=0.6
+            )
+            
+            import json
+            result = json.loads(response.choices[0].message.content.strip())
+            
+            # Agregar información de las fuentes reales al resultado
+            result['source_articles'] = [
+                {
+                    'type': 'manual_url',
+                    'title': article['title'],
+                    'url': article['url'],
+                    'content_preview': article['content'][:200] + '...' if len(article['content']) > 200 else article['content']
+                }
+                for article in extracted_articles
+            ]
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error generando artículo desde URLs reales: {e}")
+            return self._generate_fallback_content(tags_text, str(e))
     
     def generate_news_article(self, tags):
         """
@@ -58,7 +224,7 @@ class OpenAINewsGenerator:
         
         try:
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": sources_prompt}],
                 max_tokens=1500,
                 temperature=0.8
@@ -138,7 +304,7 @@ class OpenAINewsGenerator:
         
         try:
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": comprehensive_prompt}],
                 max_tokens=3000,  # Aumentado para contenido más extenso
                 temperature=0.6
@@ -191,7 +357,7 @@ class OpenAINewsGenerator:
         
         try:
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": extension_prompt}],
                 max_tokens=3500,
                 temperature=0.6
@@ -224,7 +390,7 @@ class SimpleNewsGenerationService:
     
     def process_news_generation(self, news_generation_id):
         """
-        Procesa una generación de noticias usando únicamente OpenAI
+        Procesa una generación de noticias usando URLs manuales u OpenAI simulado
         """
         try:
             news_gen = NewsGeneration.objects.get(id=news_generation_id)
@@ -233,16 +399,74 @@ class SimpleNewsGenerationService:
             news_gen.status = 'SEARCHING'
             news_gen.save()
             
-            logger.info(f"Simulando búsqueda de fuentes para tags: {news_gen.tags}")
-            
-            # Actualizar a generando contenido
-            news_gen.status = 'GENERATING'
-            news_gen.save()
-            
-            logger.info(f"Generando contenido IA comprensivo para tags: {news_gen.tags}")
-            
-            # Generar contenido directamente con OpenAI (ahora con múltiples fuentes simuladas)
-            generated = self.ai_generator.generate_news_article(news_gen.tags_list)
+            # Verificar si hay URLs manuales
+            if news_gen.manual_urls and news_gen.manual_urls.strip():
+                logger.info(f"Procesando URLs manuales para tags: {news_gen.tags}")
+                
+                # Procesar URLs manuales
+                manual_urls = [url.strip() for url in news_gen.manual_urls.strip().split('\n') if url.strip()]
+                
+                # Actualizar a generando contenido
+                news_gen.status = 'GENERATING'
+                news_gen.save()
+                
+                logger.info(f"Generando contenido desde {len(manual_urls)} URLs manuales")
+                
+                # Generar contenido basado en URLs reales
+                generated = self.ai_generator.generate_from_manual_urls(manual_urls, news_gen.tags_list)
+                
+                # Usar las fuentes reales extraídas
+                news_gen.source_articles = generated.get('source_articles', [])
+                news_gen.total_sources_found = len(news_gen.source_articles)
+                
+            else:
+                logger.info(f"Simulando búsqueda de fuentes para tags: {news_gen.tags}")
+                
+                # Actualizar a generando contenido
+                news_gen.status = 'GENERATING'
+                news_gen.save()
+                
+                logger.info(f"Generando contenido IA comprensivo para tags: {news_gen.tags}")
+                
+                # Generar contenido directamente con OpenAI (fuentes simuladas)
+                generated = self.ai_generator.generate_news_article(news_gen.tags_list)
+                
+                # Simular múltiples fuentes especializadas (solo si no hay URLs manuales)
+                simulated_sources = [
+                    {
+                        'type': 'ai_research',
+                        'source_name': f'Tech Research {news_gen.tags_list[0].title()} Journal',
+                        'focus': f'Análisis técnico de {news_gen.tags_list[0]}',
+                        'description': f'Investigación especializada en tendencias de {news_gen.tags_list[0]}'
+                    },
+                    {
+                        'type': 'ai_industry',  
+                        'source_name': 'Industry Innovation Report',
+                        'focus': f'Impacto industrial de {", ".join(news_gen.tags_list[:2])}',
+                        'description': f'Reporte de industria sobre innovaciones en {", ".join(news_gen.tags_list[:2])}'
+                    },
+                    {
+                        'type': 'ai_academic',
+                        'source_name': f'{news_gen.tags_list[0].title()} Academic Review',
+                        'focus': f'Perspectiva académica sobre {news_gen.tags_list[0]}',
+                        'description': f'Análisis académico de desarrollos en {news_gen.tags_list[0]}'
+                    },
+                    {
+                        'type': 'ai_market',
+                        'source_name': 'Market Trends Analysis',
+                        'focus': f'Tendencias de mercado en {", ".join(news_gen.tags_list)}',
+                        'description': f'Análisis de mercado y proyecciones para {", ".join(news_gen.tags_list)}'
+                    },
+                    {
+                        'type': 'ai_expert',
+                        'source_name': 'Expert Opinion Network',
+                        'focus': f'Opiniones de expertos sobre {", ".join(news_gen.tags_list)}',
+                        'description': f'Compilación de opiniones expertas en {", ".join(news_gen.tags_list)}'
+                    }
+                ]
+                
+                news_gen.source_articles = simulated_sources
+                news_gen.total_sources_found = len(simulated_sources)
             
             # Actualizar modelo con contenido generado
             news_gen.generated_title = generated['title']
@@ -250,43 +474,6 @@ class SimpleNewsGenerationService:
             news_gen.generated_excerpt = generated['excerpt']
             news_gen.generated_meta_description = generated['meta_description']
             news_gen.generated_meta_keywords = generated['meta_keywords']
-            
-            # Simular múltiples fuentes especializadas
-            simulated_sources = [
-                {
-                    'type': 'ai_research',
-                    'source_name': f'Tech Research {news_gen.tags_list[0].title()} Journal',
-                    'focus': f'Análisis técnico de {news_gen.tags_list[0]}',
-                    'description': f'Investigación especializada en tendencias de {news_gen.tags_list[0]}'
-                },
-                {
-                    'type': 'ai_industry',  
-                    'source_name': 'Industry Innovation Report',
-                    'focus': f'Impacto industrial de {", ".join(news_gen.tags_list[:2])}',
-                    'description': f'Reporte de industria sobre innovaciones en {", ".join(news_gen.tags_list[:2])}'
-                },
-                {
-                    'type': 'ai_academic',
-                    'source_name': f'{news_gen.tags_list[0].title()} Academic Review',
-                    'focus': f'Perspectiva académica sobre {news_gen.tags_list[0]}',
-                    'description': f'Análisis académico de desarrollos en {news_gen.tags_list[0]}'
-                },
-                {
-                    'type': 'ai_market',
-                    'source_name': 'Market Trends Analysis',
-                    'focus': f'Tendencias de mercado en {", ".join(news_gen.tags_list)}',
-                    'description': f'Análisis de mercado y proyecciones para {", ".join(news_gen.tags_list)}'
-                },
-                {
-                    'type': 'ai_expert',
-                    'source_name': 'Expert Opinion Network',
-                    'focus': f'Opiniones de expertos sobre {", ".join(news_gen.tags_list)}',
-                    'description': f'Compilación de opiniones expertas en {", ".join(news_gen.tags_list)}'
-                }
-            ]
-            
-            news_gen.source_articles = simulated_sources
-            news_gen.total_sources_found = len(simulated_sources)
             
             news_gen.status = 'COMPLETED'
             news_gen.completed_at = timezone.now()

@@ -49,7 +49,7 @@ class NewsGenerationAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Configuración', {
-            'fields': ('tags', 'status', 'created_by', 'created_at')
+            'fields': ('tags', 'manual_urls', 'status', 'created_by', 'created_at')
         }),
         ('Resultados de Búsqueda', {
             'fields': ('total_sources_found', 'source_articles'),
