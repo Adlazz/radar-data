@@ -140,12 +140,13 @@ class OpenAINewsGenerator:
         {{
             "title": "Título impactante basado en las fuentes reales (máximo 65 caracteres)",
             "excerpt": "Resumen ejecutivo del artículo (200-250 caracteres)",
-            "content": "Artículo completo en HTML con estructura profesional",
+            "content": "Artículo completo en HTML con estructura profesional - TODO EL CONTENIDO HTML DEBE ESTAR EN UNA SOLA LÍNEA SIN SALTOS DE LÍNEA",
             "meta_description": "Descripción SEO optimizada (150-160 caracteres)",
             "meta_keywords": "15-20 palabras clave relevantes separadas por comas",
             "word_count": "número aproximado de palabras del contenido"
         }}
         
+        CRÍTICO: Asegúrate de que el contenido HTML esté completamente en una sola línea sin saltos de línea para mantener el JSON válido.
         IMPORTANTE: El contenido debe estar basado en las fuentes reales proporcionadas y ser sustancioso, informativo y parecer escrito por un experto en {tags_text}.
         """
         
@@ -158,7 +159,22 @@ class OpenAINewsGenerator:
             )
             
             import json
-            result = json.loads(response.choices[0].message.content.strip())
+            import re
+            content = response.choices[0].message.content.strip()
+            if not content:
+                raise ValueError("La API devolvió una respuesta vacía")
+            
+            # Limpiar saltos de línea problemáticos que rompen el JSON
+            # Reemplazar todos los saltos de línea por espacios para mantener JSON válido
+            content = content.replace('\n', ' ').replace('\r', ' ')
+            # Limpiar espacios múltiples
+            content = re.sub(r'\s+', ' ', content)
+            
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError as json_error:
+                logger.error(f"Respuesta de API no es JSON válido después de limpieza: {content}")
+                raise ValueError(f"Error parsing JSON: {json_error}")
             
             # Agregar información de las fuentes reales al resultado
             result['source_articles'] = [
