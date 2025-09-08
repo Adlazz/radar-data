@@ -58,7 +58,19 @@
 
   <!-- Contenido -->
   <main class="container py-4">
-    {% block content %}{% endblock %}
+    <div class="row">
+      <!-- Contenido principal (3/4 del ancho) -->
+      <div class="col-lg-9">
+        {% block content %}{% endblock %}
+      </div>
+      
+      <!-- Sidebar derecho (1/4 del ancho) -->
+      <div class="col-lg-3">
+        {% block sidebar %}
+          {% include 'partials/sidebar.html' %}
+        {% endblock %}
+      </div>
+    </div>
   </main>
 
   <footer class="border-top py-4">
