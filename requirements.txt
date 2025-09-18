@@ -12,3 +12,10 @@ openai==1.57.0
 python-decouple==3.8
 requests==2.32.3
 beautifulsoup4==4.12.3
+
+# Production Dependencies
+gunicorn==22.0.0
+psycopg2-binary==2.9.9
+boto3==1.35.39
+django-storages==1.14.4
+whitenoise==6.8.2
